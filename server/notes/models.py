@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import Field
 from pydantic.functional_validators import AfterValidator
@@ -9,6 +9,15 @@ from helpers import CustomBaseModel, is_valid_filename, strip_whitespace
 
 class NoteBase(CustomBaseModel):
     title: str
+
+
+class SharingStatus(CustomBaseModel):
+    shared: bool = False
+    writeable: bool = False
+
+
+class SharingUpdate(CustomBaseModel):
+    mode: Literal["private", "shared-readonly", "shared-editable"]
 
 
 class NoteCreate(CustomBaseModel):

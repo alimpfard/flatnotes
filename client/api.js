@@ -154,3 +154,23 @@ export async function createAttachment(file) {
     return Promise.reject(response);
   }
 }
+
+export async function getSharingStatus(title) {
+  try {
+    const response = await api.get(`api/notes/${encodeURIComponent(title)}/sharing`);
+    return response.data;
+  } catch (response) {
+    return Promise.reject(response);
+  }
+}
+
+export async function updateSharingStatus(title, mode) {
+  try {
+    const response = await api.patch(`api/notes/${encodeURIComponent(title)}/sharing`, {
+      mode: mode,
+    });
+    return response.data;
+  } catch (response) {
+    return Promise.reject(response);
+  }
+}

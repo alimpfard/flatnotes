@@ -1,6 +1,6 @@
-from typing import List, Literal
+from typing import List, Literal, Optional
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -12,13 +12,49 @@ from auth.models import Login, Token
 from global_config import AuthType, GlobalConfig, GlobalConfigResponseModel
 from helpers import replace_base_href
 from notes.base import BaseNotes
-from notes.models import Note, NoteCreate, NoteUpdate, SearchResult
+from notes.models import Note, NoteCreate, NoteUpdate, SearchResult, SharingStatus, SharingUpdate
 
 global_config = GlobalConfig()
 auth: BaseAuth = global_config.load_auth()
 note_storage: BaseNotes = global_config.load_note_storage()
 attachment_storage: BaseAttachments = global_config.load_attachment_storage()
 auth_deps = [Depends(auth.authenticate)] if auth else []
+
+
+def optional_auth(request: Request) -> bool:
+    """Optional authentication - returns True if authenticated, False otherwise."""
+    if not auth:
+        return True  # No auth required
+    
+    try:
+        # Extract token from Authorization header or cookie
+        token = None
+        authorization = request.headers.get("Authorization")
+        if authorization:
+            token = authorization.replace("Bearer ", "")
+        else:
+            token = request.cookies.get("token")
+        
+        if not token:
+            return False
+        
+        auth.authenticate(request, token)
+        return True
+    except:
+        return False
+
+
+def check_note_access(title: str, require_write: bool = False) -> bool:
+    """Check if a note can be accessed without authentication."""
+    try:
+        status = note_storage.get_sharing_status(title)
+        if require_write:
+            return status.shared and status.writeable
+        return status.shared
+    except:
+        return False
+
+
 router = APIRouter()
 app = FastAPI(
     docs_url=global_config.path_prefix + "/docs",
@@ -69,11 +105,14 @@ def auth_check() -> str:
 # Get Note
 @router.get(
     "/api/notes/{title}",
-    dependencies=auth_deps,
     response_model=Note,
 )
-def get_note(title: str):
+def get_note(title: str, is_authenticated: bool = Depends(optional_auth)):
     """Get a specific note."""
+    # Check if user is authenticated or note is shared
+    if not is_authenticated and not check_note_access(title, require_write=False):
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
     try:
         return note_storage.get(title)
     except ValueError:
@@ -109,10 +148,13 @@ if global_config.auth_type != AuthType.READ_ONLY:
     # Update Note
     @router.patch(
         "/api/notes/{title}",
-        dependencies=auth_deps,
         response_model=Note,
     )
-    def patch_note(title: str, data: NoteUpdate):
+    def patch_note(title: str, data: NoteUpdate, is_authenticated: bool = Depends(optional_auth)):
+        # Check if user is authenticated or note is shared-editable
+        if not is_authenticated and not check_note_access(title, require_write=True):
+            raise HTTPException(status_code=401, detail="Authentication required")
+        
         try:
             return note_storage.update(title, data)
         except ValueError:
@@ -140,6 +182,54 @@ if global_config.auth_type != AuthType.READ_ONLY:
             raise HTTPException(
                 status_code=400,
                 detail=api_messages.invalid_note_title,
+            )
+        except FileNotFoundError:
+            raise HTTPException(404, api_messages.note_not_found)
+
+
+# Get Sharing Status
+@router.get(
+    "/api/notes/{title}/sharing",
+    response_model=SharingStatus,
+)
+def get_note_sharing_status(title: str, is_authenticated: bool = Depends(optional_auth)):
+    """Get the sharing status of a note."""
+    # Check if user is authenticated or note is shared
+    if not is_authenticated and not check_note_access(title, require_write=False):
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    try:
+        return note_storage.get_sharing_status(title)
+    except ValueError:
+        raise HTTPException(
+            status_code=400, detail=api_messages.invalid_note_title
+        )
+    except FileNotFoundError:
+        raise HTTPException(404, api_messages.note_not_found)
+
+
+if global_config.auth_type != AuthType.READ_ONLY:
+    # Set Sharing Status
+    @router.patch(
+        "/api/notes/{title}/sharing",
+        dependencies=auth_deps,
+        response_model=SharingStatus,
+    )
+    def set_note_sharing_status(title: str, data: SharingUpdate):
+        """Set the sharing status of a note."""
+        # Convert mode to SharingStatus
+        if data.mode == "private":
+            status = SharingStatus(shared=False, writeable=False)
+        elif data.mode == "shared-readonly":
+            status = SharingStatus(shared=True, writeable=False)
+        elif data.mode == "shared-editable":
+            status = SharingStatus(shared=True, writeable=True)
+        
+        try:
+            return note_storage.set_sharing_status(title, status)
+        except ValueError:
+            raise HTTPException(
+                status_code=400, detail=api_messages.invalid_note_title
             )
         except FileNotFoundError:
             raise HTTPException(404, api_messages.note_not_found)

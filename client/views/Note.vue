@@ -54,6 +54,18 @@
 
       <!-- Buttons -->
       <div class="flex shrink-0 self-end md:self-baseline print:hidden">
+        <!-- Sharing Dropdown -->
+        <select
+          v-if="canModify && !isNewNote"
+          v-model="sharingMode"
+          @change="updateSharingHandler"
+          class="mr-1 rounded border border-theme-border bg-theme-background px-2 py-1 text-sm outline-none hover:border-theme-brand focus:border-theme-brand"
+          title="Sharing mode"
+        >
+          <option value="private">Private</option>
+          <option value="shared-readonly">Shared (Read-only)</option>
+          <option value="shared-editable">Shared (Editable)</option>
+        </select>
         <!-- Delete Button -->
         <CustomButton
           v-show="canModify && !isNewNote"
@@ -132,7 +144,9 @@ import {
   createNote,
   deleteNote,
   getNote,
+  getSharingStatus,
   updateNote,
+  updateSharingStatus,
 } from "../api.js";
 import { Note } from "../classes.js";
 import ConfirmModal from "../components/ConfirmModal.vue";
@@ -141,7 +155,7 @@ import LoadingIndicator from "../components/LoadingIndicator.vue";
 import Toggle from "../components/Toggle.vue";
 import ToastEditor from "../components/toastui/ToastEditor.vue";
 import ToastViewer from "../components/toastui/ToastViewer.vue";
-import { authTypes } from "../constants.js";
+import { authTypes, params } from "../constants.js";
 import { useGlobalStore } from "../globalStore.js";
 import { getToastOptions } from "../helpers.js";
 import { isCurrentTokenStored } from "../tokenStorage.js";
@@ -165,6 +179,7 @@ const note = ref({});
 const reservedFilenameCharacters = /[<>:"/\\|?*]/;
 const router = useRouter();
 const newTitle = ref();
+const sharingMode = ref("private");
 const toast = useToast();
 const toastEditor = ref();
 const unsavedChanges = ref(false);
@@ -180,11 +195,19 @@ function init() {
     getNote(props.title)
       .then((data) => {
         note.value = data;
+        loadSharingStatus();
         loadingIndicator.value.setLoaded();
       })
       .catch((error) => {
         if (error.response?.status === 404) {
           loadingIndicator.value.setFailed("Note not found", mdiNoteOffOutline);
+	} else if (error.response?.status === 401) {
+          // Redirect to login if note requires authentication
+          const redirectPath = router.currentRoute.value.fullPath;
+          router.push({
+            name: "login",
+            query: { [constants.params.redirect]: redirectPath },
+          });
         } else {
           loadingIndicator.value.setFailed();
           apiErrorHandler(error, toast);
@@ -336,6 +359,52 @@ function noteSaveSuccess(close = false) {
   }
   setBeforeUnloadConfirmation(false);
   toast.add(getToastOptions("Note saved successfully ✓", "Success", "success"));
+}
+
+// Sharing Status
+function loadSharingStatus() {
+  if (!props.title) return;
+  
+  getSharingStatus(props.title)
+    .then((data) => {
+      if (!data.shared) {
+        sharingMode.value = "private";
+      } else if (data.writeable) {
+        sharingMode.value = "shared-editable";
+      } else {
+        sharingMode.value = "shared-readonly";
+      }
+    })
+    .catch((error) => {
+      // Silently fail - just keep default private mode
+      console.error("Failed to load sharing status:", error);
+    });
+}
+
+function updateSharingHandler() {
+  if (!props.title) return;
+  
+  updateSharingStatus(props.title, sharingMode.value)
+    .then(() => {
+      toast.add(
+        getToastOptions(
+          "Sharing status updated successfully",
+          "Success",
+          "success",
+        ),
+      );
+    })
+    .catch((error) => {
+      toast.add(
+        getToastOptions(
+          "Failed to update sharing status. Please try again.",
+          "Error",
+          "error",
+        ),
+      );
+      // Reload the current sharing status
+      loadSharingStatus();
+    });
 }
 
 // Note Closure

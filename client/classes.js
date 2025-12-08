@@ -5,6 +5,7 @@ class Note {
     this.title = note?.title;
     this.lastModified = note?.lastModified;
     this.content = note?.content;
+    this.sharingStatus = note?.sharingStatus || { shared: false, writeable: false };
   }
 
   get lastModifiedAsDate() {
@@ -13,6 +14,16 @@ class Note {
 
   get lastModifiedAsString() {
     return this.lastModifiedAsDate.toLocaleString();
+  }
+
+  get sharingMode() {
+    if (!this.sharingStatus.shared) {
+      return "private";
+    } else if (this.sharingStatus.writeable) {
+      return "shared-editable";
+    } else {
+      return "shared-readonly";
+    }
   }
 }
 

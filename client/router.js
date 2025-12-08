@@ -44,7 +44,7 @@ const router = createRouter({
 // Check the user is authenticated on first navigation (unless going to login)
 let authChecked = false;
 router.beforeEach(async (to) => {
-  if (authChecked || to.name === "login") {
+  if (authChecked || to.name === "login" || to.name == "note") {
     return;
   }
   try {

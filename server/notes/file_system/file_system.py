@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 import time
+import xattr
 from datetime import datetime
 from typing import List, Literal, Set, Tuple
 
@@ -22,7 +23,7 @@ from helpers import get_env, is_valid_filename
 from logger import logger
 
 from ..base import BaseNotes
-from ..models import Note, NoteCreate, NoteUpdate, SearchResult
+from ..models import Note, NoteCreate, NoteUpdate, SearchResult, SharingStatus
 
 MARKDOWN_EXT = ".md"
 INDEX_SCHEMA_VERSION = "5"
@@ -158,6 +159,38 @@ class FileSystemNotes(BaseNotes):
         with self.index.reader() as reader:
             tags = reader.field_terms("tags")
             return [tag for tag in tags]
+
+    def get_sharing_status(self, title: str) -> SharingStatus:
+        """Get the sharing status of a note."""
+        is_valid_filename(title)
+        filepath = self._path_from_title(title)
+        if not os.path.isfile(filepath):
+            raise FileNotFoundError(f"'{title}' not found.")
+        
+        attrs = xattr.xattr(filepath)
+        try:
+            shared = attrs["user.flatnotes.shared"].decode() == "true"
+        except:
+            shared = False
+        try:
+            writeable = attrs["user.flatnotes.writeable"].decode() == "true"
+        except:
+            writeable = False
+        
+        return SharingStatus(shared=shared, writeable=writeable)
+
+    def set_sharing_status(self, title: str, status: SharingStatus) -> SharingStatus:
+        """Set the sharing status of a note."""
+        is_valid_filename(title)
+        filepath = self._path_from_title(title)
+        if not os.path.isfile(filepath):
+            raise FileNotFoundError(f"'{title}' not found.")
+        
+        attrs = xattr.xattr(filepath)
+        attrs["user.flatnotes.shared"] = b"true" if status.shared else b"false"
+        attrs["user.flatnotes.writeable"] = b"true" if status.writeable else b"false"
+        
+        return status
 
     @property
     def _index_path(self):

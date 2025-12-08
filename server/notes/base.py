@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Literal
 
-from .models import Note, NoteCreate, NoteUpdate, SearchResult
+from .models import Note, NoteCreate, NoteUpdate, SearchResult, SharingStatus
 
 
 class BaseNotes(ABC):
@@ -39,4 +39,14 @@ class BaseNotes(ABC):
     @abstractmethod
     def get_tags(self) -> list[str]:
         """Get a list of all indexed tags."""
+        pass
+
+    @abstractmethod
+    def get_sharing_status(self, title: str) -> SharingStatus:
+        """Get the sharing status of a note."""
+        pass
+
+    @abstractmethod
+    def set_sharing_status(self, title: str, status: SharingStatus) -> SharingStatus:
+        """Set the sharing status of a note."""
         pass
